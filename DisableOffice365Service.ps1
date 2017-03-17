@@ -21,7 +21,7 @@
 #
 ####################################################################
 
-$AccountSkuId = "livetestlsu:STANDARDWOFFPACK_FACULTY"
+$AccountSkuId = "yourtenant:STANDARDWOFFPACK_FACULTY"
 $DisableNewServiceName = "TEAMS1"
 
 #Requires -Module MSOnline
