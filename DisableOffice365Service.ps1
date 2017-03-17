@@ -55,7 +55,7 @@ foreach ($user in $users)
          # If the new service is not already disabled, add it to the list of disabled services to update the license.
          if ($DisableNewServiceName -notin $disabledServices)
          {
-            Write-Host "Removing $DisableNewServiceName from $AccountSkuId for $upn"
+            Write-Host "Disabling $DisableNewServiceName on $AccountSkuId for $upn"
             $disabledServices += $DisableNewServiceName
             $licenseOption = New-MsolLicenseOptions -AccountSkuId $AccountSkuId -DisabledPlans $disabledServices
             Set-MsolUserLicense -UserPrincipalName $upn -LicenseOptions $licenseOption 
