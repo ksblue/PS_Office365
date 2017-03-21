@@ -46,11 +46,11 @@ foreach ($user in $users)
       if ($license.AccountSkuId -eq $AccountSkuId) 
       {
          # Once we find the license we want to update, make a list of all the currently disabled services on that license.
-         $disabledServices = $license.servicestatus | 
+         $disabledServices = @($license.servicestatus | 
             Where-Object {$_.provisioningstatus -eq "Disabled"} | 
             Select-Object -ExpandProperty serviceplan |
             Select-Object -ExpandProperty servicename |
-            Sort-Object
+            Sort-Object)
 
          # If the new service is not already disabled, add it to the list of disabled services to update the license.
          if ($DisableNewServiceName -notin $disabledServices)
