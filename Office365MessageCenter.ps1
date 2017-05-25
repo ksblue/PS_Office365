@@ -11,8 +11,6 @@
 
 .PARAMETER ServiceUrl
    The Office 365 Service URL.
-   So far, it has been this:
-   https://api.admin.microsoftonline.com/shdtenantcommunications.svc
 
 .PARAMETER LastRunFile
    Path for file that stores the date/time this script was run last.
@@ -33,7 +31,7 @@
    SMTP server for sending e-mail.
 
 .PARAMETER O365Cred
-   Path and filename for XML file with Office 365 credentials.
+   Path and filename for xml file with Office 365 credentials.
 
 .NOTES
    NAME:    Office365MessengerCenter.ps1
@@ -67,7 +65,7 @@ try
    # If not found, use the current date.
    try
    {
-      $lastrundatetime = [datetime]::SpecifyKind((Get-Content -Path $LastRunFile -ErrorAction stop ),[datetimekind]::local)
+      $lastrundatetime = [datetime]::SpecifyKind((Get-Content -Path $LastRunFile -ErrorAction stop),[datetimekind]::local)
    }
    catch
    {
@@ -75,14 +73,12 @@ try
    }
    $lastrundatetime = $lastrundatetime.ToUniversalTime()
 
-   $emailbody = "<html><head>" +
-   "<style>" +
-   ìBODY{font-family: Arial; font-size: 10pt;}î +
-   ìTABLE{border: 1px solid black; border-collapse: collapse;}î +
-   ìTH{border: 1px solid black; background: #dddddd; padding: 5px; text-align: left }î +
-   ìTD{border: 1px solid black; padding: 5px; }î +
-   ì</style>î +
-   "</head><body>New message posted to the Office 365 dashboard message center:<br /><br />"
+   $emailbody = "<html><head><style>" +
+   ‚ÄúBODY{font-family: Arial; font-size: 10pt;}‚Äù +
+   ‚ÄúTABLE{border: 1px solid black; border-collapse: collapse;}‚Äù +
+   ‚ÄúTH{border: 1px solid black; background: #dddddd; padding: 5px; text-align: left }‚Äù +
+   ‚ÄúTD{border: 1px solid black; padding: 5px; }‚Äù +
+   ‚Äú</style></head><body>"
 
    # Use credentials stored in file.
    $cred = Import-Credential -Path $O365Cred -ErrorAction stop 
@@ -90,7 +86,7 @@ try
    $jsonPayload = (@{userName=$cred.username;password=$cred.GetNetworkCredential().password;} | ConvertTo-Json).tostring()
    $cookie = (Invoke-RestMethod -ContentType "application/json" -Method Post -Uri "$ServiceUrl/Register" -Body $jsonPayload).RegistrationCookie
    # Get events.
-   $jsonPayload = (@{lastCookie=$cookie;locale="en-US";preferredEventTypes=@(2)} | convertto-json).tostring()
+   $jsonPayload = (@{lastCookie=$cookie;locale="en-US";preferredEventTypes=@(2)} | ConvertTo-Json).tostring()
    $events = (Invoke-RestMethod -ContentType "application/json" -Method Post -Uri "$ServiceUrl/GetEvents" -Body $jsonPayload)
    $newevents = $events.events | Where-Object {$_.lastupdatedtime -gt $lastrundatetime}
 
@@ -100,26 +96,17 @@ try
       foreach ($n in $newevents) 
       {
          $emailbody += "<br /><table>" +
-         "<tr><th>Id</th><td colspan=`"2`">$($n.Id)</td></tr>" +
-         "<tr><th>Title</th><td colspan=`"2`">$($n.title)</td></tr>" +
-         "<tr><th>Link</th><td colspan=`"2`">$($n.externallink)</td></tr>" +
-         "<tr><th>Category</th><td colspan=`"2`">$($n.category)</td></tr>"
+         "<tr><th>Title</th><td>$($n.title)</td></tr>" +
+         "<tr><th>Id</th><td>$($n.Id)</td></tr>" +
+         "<tr><th>Link</th><td>$($n.externallink)</td></tr>" +
+         "<tr><th>Category</th><td>$($n.category)</td></tr>"
 
          $messages = $n.Messages | Sort-Object -Property publishedtime -Descending
-         $msgcount = 0
-         $totalmsgs = @($messages).Count
          foreach ($m in $messages)
          {
-            $msgcount++
-            $messagetext = $m.MessageText -replace "`n","<br />"
-            if ($msgcount -eq 1)
-            {
-               $emailbody += "<tr><th rowspan=`"$totalmsgs`">Details</th><td>$($m.publishedtime.ToLocalTime().tostring("F"))</td><td>$($messagetext)</td></tr>"
-            }
-            else
-            {
-               $emailbody += "<tr><td>$($m.publishedtime.ToLocalTime().tostring("F"))</td><td>$($messagetext)</td></tr>"
-            }   
+            $messagetext = $m.MessageText -replace "`n","<br />"            
+            $emailbody += "<tr><th>Published</th><td>$($m.publishedtime.ToLocalTime().tostring("F"))</td></tr>" +
+            "<tr><th>Details</th><td>$($messagetext)</td></tr>"
          }
 
          $emailbody += "</table><br />"
@@ -128,7 +115,7 @@ try
       $parms = @{
          From        = $EmailFrom
          To          = $EmailTo
-         Subject     = "Office 365 Message Center message"
+         Subject     = "Office 365 Message Center message(s)"
          SmtpServer  = $EmailSmtp
          Body        = $emailbody
          BodyAsHtml  = $true 
@@ -138,17 +125,17 @@ try
    }
 
    # Update the LastRunFile with the date/time of this run.
-   Set-Content -Path $LastrunFile -Value (get-date)
+   Set-Content -Path $LastrunFile -Value (Get-Date)
 }
 catch
 {
-   # In case something goes wrong, try to send an e-mail to whoever needs to fix this.
+   # If something goes wrong, send an e-mail to whoever needs to fix this.
    Write-LogMessage -Path $LogFile -Message "EXCEPTION:"
    Write-LogException -Path $LogFile -Exception $_ 
    $parms = @{
       From        = $EmailFrom
       To          = $EmailErrorTo
-      Subject     = "Office 365 Message Center message - ERROR"
+      Subject     = "Office 365 Message Center message(s) - ERROR"
       SmtpServer  = $EmailSmtp
       Body        = "An error has occurred in $scriptname."
       Attachments = $LogFile
