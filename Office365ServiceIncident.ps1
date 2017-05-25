@@ -11,8 +11,6 @@
 
 .PARAMETER ServiceUrl
    The Office 365 Service URL.
-   So far, it has been this:
-   https://api.admin.microsoftonline.com/shdtenantcommunications.svc
 
 .PARAMETER LastRunFile
    Path for file that stores the date/time this script was run last.
@@ -39,6 +37,10 @@
    NAME:    Office365ServiceIncident.ps1
    AUTHOR:  Shaun Blue
    DATE:    October 17, 2014
+
+   03/27/2017 Use new LSU modules.  Also change to only report the lastest updates
+   instead of reporting all updates for incidents with a recent update.
+   05/02/2017 Modified format of message details.
 
 #>
 [cmdletbinding()]
@@ -75,59 +77,63 @@ try
    }
    $lastrundatetime = $lastrundatetime.ToUniversalTime()
 
-   $emailbody = "<html><head>" +
-   "<style>" +
-   ìBODY{font-family: Arial; font-size: 10pt;}î +
-   ìTABLE{border: 1px solid black; border-collapse: collapse;}î +
-   ìTH{border: 1px solid black; background: #dddddd; padding: 5px; text-align: left }î +
-   ìTD{border: 1px solid black; padding: 5px; }î +
-   ì</style>î +
-   "</head><body>Service Health updates posted to the Office 365 dashboard:<br /><br />"
+   $emailbody = "<html><head><style>" +
+   ‚ÄúBODY{font-family: Arial; font-size: 10pt;}‚Äù +
+   ‚ÄúTABLE{border: 1px solid black; border-collapse: collapse;}‚Äù +
+   ‚ÄúTH{border: 1px solid black; background: #dddddd; padding: 5px; text-align: left }‚Äù +
+   ‚ÄúTD{border: 1px solid black; padding: 5px; }‚Äù +
+   ‚Äú</style></head><body>"
 
    # Use credentials stored in file.
    $cred = Import-Credential -Path $O365Cred -ErrorAction Stop
    # Obtain cookie for authentication.
-   $jsonPayload = (@{userName=$cred.username;password=$cred.GetNetworkCredential().password;} | convertto-json).tostring()
+   $jsonPayload = (@{userName=$cred.username;password=$cred.GetNetworkCredential().password;} | ConvertTo-Json).tostring()
    $cookie = (Invoke-RestMethod -ContentType "application/json" -Method Post -Uri "$ServiceUrl/Register" -Body $jsonPayload).RegistrationCookie
    # Get events.
-   $jsonPayload = (@{lastCookie=$cookie;locale="en-US";preferredEventTypes=@(0)} | convertto-json).tostring()
-   $events = (Invoke-RestMethod -ContentType "application/json" -Method Post -Uri "$ServiceUrl/GetEvents" -Body $jsonPayload)
-   $newevents = $events.events | Where-Object {$_.lastupdatedtime -gt $lastrundatetime}
+   $jsonPayload = (@{lastCookie=$cookie;locale="en-US";preferredEventTypes=@(0)} | ConvertTo-Json).tostring()
+   $newevents = (Invoke-RestMethod -ContentType "application/json" -Method Post -Uri "$ServiceUrl/GetEvents" -Body $jsonPayload).events |
+   Where-Object {$_.lastupdatedtime -gt $lastrundatetime -and ($_.messages.publishedtime | Where-Object {$_ -gt $lastrundatetime})}
 
    # If any new alerts are found, format an e-mail and send it.
    if (@($newevents).count -gt 0)
    {
       foreach ($n in $newevents) 
       {
-         $emailbody += "<br /><table>"
-         $emailbody += "<tr><th>SERVICE / FEATURE</th><th>INCIDENT</th><th>CURRENT STATUS</th><th>DATE AND TIME</th><th>DETAILS</th></tr>"
-         $messages = $n.Messages | Sort-Object -Property publishedtime -Descending
-         $msgcount = 0
-         $totalmsgs = @($messages).Count
-         foreach ($m in $messages)
+         $emailbody += "<br /><table>" +
+         "<tr><th>Service/Feature</th><td>$($n.AffectedServiceHealthStatus[0].ServiceName) / $($n.AffectedServiceHealthStatus[0].ServiceFeatureStatus[0].FeatureName)</td></tr>" +
+         "<tr><th>Incident</th><td>$($n.title)</td></tr>" +
+         "<tr><th>Current Status</th><td>$($n.status)</td></tr>" + 
+         "<tr><th>Start Time</th><td>$($n.starttime.ToLocalTime().tostring("F"))</td></tr>"
+         if ($n.EndTime -eq $null)
          {
-            $msgcount++
-            $messagetext = $m.MessageText -replace "`n","<br />"
-            if ($msgcount -eq 1)
+            $emailbody += "<tr><th>End Time</th><td></td></tr>"
+         }
+         else
+         {
+            $emailbody += "<tr><th>End Time</th><td>$($n.endtime.ToLocalTime().tostring("F"))</td></tr>"
+         }
+
+         # Select only the latest updates to an event.
+         $msgnbr = 0
+         foreach ($m in ($n.Messages | Sort-Object -Property publishedtime))
+         {
+            $msgnbr++
+            if ($m.publishedtime -gt $lastrundatetime)
             {
-               $emailbody += "<tr><td rowspan=`"$totalmsgs`" style=`"vertical-align:top`">$($n.AffectedServiceHealthStatus[0].ServiceName) / <br />$($n.AffectedServiceHealthStatus[0].ServiceFeatureStatus[0].FeatureName)</td>" + 
-               "<td rowspan=`"$totalmsgs`" style=`"vertical-align:top`">$($n.title)</td>" + 
-               "<td rowspan=`"$totalmsgs`" style=`"vertical-align:top`">$($n.status)</td>" + 
-               "<td>$($m.publishedtime.ToLocalTime().tostring("F"))</td>" + 
-               "<td>$($messagetext)</td></tr>"
-            }
-            else
-            {
-               $emailbody += "<tr><td>$($m.publishedtime.ToLocalTime().tostring("F"))</td><td>$($messagetext)</td></tr>"
+               $messagetext = $m.MessageText -replace "`n","<br />"            
+               $emailbody += "<tr><th>Update Time</th><td>$($m.publishedtime.ToLocalTime().tostring("F"))</td></tr>" +
+               "<tr><th>Update Number</th><td>$msgnbr</td></tr>" +
+               "<tr><th>Details</th><td>$($messagetext)</td></tr>"
             }
          }
+
          $emailbody += "</table><br />"
       }
       $emailbody += "</body></html>"
       $parms = @{
          From        = $EmailFrom
          To          = $EmailTo
-         Subject     = "Office 365 service health update"
+         Subject     = "Office 365 Service Health update(s)"
          SmtpServer  = $EmailSmtp
          Body        = $emailbody
          BodyAsHtml  = $true 
@@ -141,13 +147,13 @@ try
 }
 catch
 {
-   # In case something goes wrong, try to send an e-mail to whoever needs to fix this.
+   # If something goes wrong, send an e-mail to whoever needs to fix this.
    Write-LogMessage -Path $LogFile -Message "EXCEPTION:"
    Write-LogException -Path $LogFile -Exception $_ 
    $parms = @{
       From        = $EmailFrom
       To          = $EmailErrorTo
-      Subject     = "Office 365 service health update - ERROR"
+      Subject     = "Office 365 Service Health update(s) - ERROR"
       SmtpServer  = $EmailSmtp
       Body        = "An error has occurred in $scriptname."
       Attachments = $LogFile
