@@ -1,4 +1,4 @@
-﻿########################################################################
+########################################################################
 #
 # This is a script to disable a selected service for all users that
 # are licensed with a selected SKU.
@@ -19,7 +19,7 @@
 ########################################################################
 
 $SkuName = "STANDARDWOFFPACK_FACULTY"
-$ServiceToDisable = "STREAM_O365_E3"
+$ServiceToDisable = "SCHOOL_DATA_SYNC_P1"
 
 #Requires -Module AzureAD
 
@@ -39,9 +39,12 @@ elseif ($sku.ServicePlans.ServicePlanName -notcontains $ServiceToDisable)
 }
 else
 {
+   # Get the id of the service to be disabled.
+   $servicePlanIdToDisable = ($sku.ServicePlans | Where-Object {$_.ServicePlanName -eq $ServiceToDisable}).ServicePlanId
+
    # Get all users with this license.
    Write-Host "Querying licensed users."
-   $users = Get-AzureADUser -Top 100 | 
+   $users = Get-AzureADUser -Top 100000 | 
       Where-Object {$_.AssignedLicenses -ne $null -and $_.AssignedLicenses.skuid -contains $sku.SkuId} |
       Sort-Object -Property UserPrincipalName
 
@@ -51,24 +54,15 @@ else
    {
       $upn = $user.UserPrincipalName
 
-      $userLicense = Get-AzureADUserLicenseDetail -ObjectId $upn | 
-         Where-Object {$_.SkuId -eq $sku.SkuId}
-   
-      # Make a list of all the currently disabled services on that user's license.
-      $userDisabledServices = @($userLicense.ServicePlans | 
-         Where-Object {$_.ProvisioningStatus -eq "Disabled"} | 
-         Select-Object -ExpandProperty ServicePlanName |
-         Sort-Object)
-
       # If the new service is not disabled, add it to the list of already disabled services and update the user's license. 
-      if ($ServiceToDisable -notin $userDisabledServices)
+      if ($servicePlanIdToDisable -notin ($user.AssignedLicenses | Where-Object {$_.SkuId -eq $sku.SkuId}).DisabledPlans)
       {
-         Write-Host "Disabling $ServiceToDisable from $SkuName for $upn"
+         Write-Host "Disabling $ServiceToDisable on $SkuName for $upn"
          $license = New-Object -TypeName Microsoft.Open.AzureAD.Model.AssignedLicense
          $license.SkuId = $sku.SkuId
          
-         $license.DisabledPlans = ($userLicense.ServicePlans | Where-Object {$_.ProvisioningStatus -eq "Disabled"}).ServicePlanId
-         $license.DisabledPlans += ($sku.ServicePlans | Where-Object {$_.ServicePlanName -eq $ServiceToDisable}).ServicePlanId
+         $license.DisabledPlans = ($user.AssignedLicenses | Where-Object {$_.SkuId -eq $sku.SkuId}).DisabledPlans
+         $license.DisabledPlans += $servicePlanIdToDisable
         
          $licenses = New-Object -TypeName Microsoft.Open.AzureAD.Model.AssignedLicenses
          $licenses.AddLicenses = $license 
